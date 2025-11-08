@@ -48,26 +48,33 @@ jobs:
             echo "=================================="
             echo ""
 
+            # Create directory if doesn't exist
+            mkdir -p ~/tcra-webhook-tester
+
             # Navigate to project directory
             cd ~/tcra-webhook-tester || {
-              echo "❌ Project directory not found at ~/tcra-webhook-tester"
+              echo "❌ Could not navigate to ~/tcra-webhook-tester"
               exit 1
             }
 
-            # Backup current state
-            echo "💾 Creating backup..."
-            BACKUP_DIR="backups/backup-$(date +%Y%m%d-%H%M%S)"
-            mkdir -p $BACKUP_DIR
-
-            # Backup environment file
-            if [ -f .env ]; then
-              cp .env $BACKUP_DIR/.env.backup
-              echo "✅ Environment file backed up"
+            # Initialize git if not already initialized
+            if [ ! -d .git ]; then
+              echo "📦 First-time deployment - initializing repository..."
+              git init
+              git remote add origin https://github.com/${GITHUB_REPOSITORY}.git
             fi
 
-            # Save current container state
-            docker-compose ps > $BACKUP_DIR/containers-state.txt
-            echo "✅ Container state saved"
+            # Backup current state (skip if first deployment)
+            if [ -f .env ] && [ -f docker-compose.yml ]; then
+              echo "💾 Creating backup..."
+              BACKUP_DIR="backups/backup-$(date +%Y%m%d-%H%M%S)"
+              mkdir -p $BACKUP_DIR
+              cp .env $BACKUP_DIR/.env.backup
+              docker-compose ps > $BACKUP_DIR/containers-state.txt 2>/dev/null || true
+              echo "✅ Backup created"
+            else
+              echo "📦 First-time deployment - skipping backup"
+            fi
 
             # Pull latest changes
             echo ""
@@ -76,14 +83,17 @@ jobs:
             git reset --hard origin/main || git reset --hard origin/master
             echo "✅ Code updated"
 
-            # Check if .env exists
+            # Check if .env exists, create from example if not
             if [ ! -f .env ]; then
               echo "⚠️  .env file not found!"
-              if [ -f $BACKUP_DIR/.env.backup ]; then
-                cp $BACKUP_DIR/.env.backup .env
-                echo "✅ Restored .env from backup"
+              if [ -f .env.example ]; then
+                echo "📝 Creating .env from .env.example..."
+                cp .env.example .env
+                echo "✅ .env file created"
+                echo "⚠️  IMPORTANT: Update .env with actual values on server!"
+                echo "   SSH to server and edit: nano ~/tcra-webhook-tester/.env"
               else
-                echo "❌ No .env file available. Deployment cannot continue."
+                echo "❌ No .env.example found. Deployment cannot continue."
                 exit 1
               fi
             fi

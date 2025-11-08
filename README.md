@@ -83,6 +83,22 @@ Configure these secrets in your GitHub repository settings:
 - **CI**: Validation and security scanning on all pushes
 - **CD**: Automated deployment to production on main branch
 
+### First-Time Deployment
+
+The CD workflow automatically handles first-time deployments:
+
+1. **Auto-Initialize Repository**: Creates `~/tcra-webhook-tester` directory and initializes git if needed
+2. **Environment Setup**: Creates `.env` from `.env.example` if not exists
+3. **Skip Backup**: Skips backup on first deployment (no existing state)
+4. **Pull and Deploy**: Pulls code from GitHub and starts containers
+
+**Important**: After first deployment, SSH to VPS and:
+```bash
+cd ~/tcra-webhook-tester
+nano .env  # Update with actual production values (if needed)
+bash scripts/ssl-setup.sh --standalone  # Generate SSL certificates
+```
+
 ## Port Configuration
 
 **⚠️ Important**: This setup binds nginx to ports 80 and 443.

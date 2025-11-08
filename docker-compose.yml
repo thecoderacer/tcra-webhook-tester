@@ -30,8 +30,11 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/scripts/docker-entrypoint.sh:/custom-entrypoint.sh:ro
       - acme_challenge:/var/www/acme-challenge:ro
-      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: ["/bin/sh", "/custom-entrypoint.sh"]
+    command: ["nginx", "-g", "daemon off;"]
     networks:
       - web
     depends_on:

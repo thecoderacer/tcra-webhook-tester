@@ -4,7 +4,7 @@ services:
   # Webhook Tester Service
   webhook-tester:
     image: tarampampam/webhook-tester:latest
-    container_name: webhook_tester
+    container_name: whtest_webhook_tester
     restart: unless-stopped
     environment:
       - LISTEN_PORT=8080
@@ -22,7 +22,7 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: nginx
+    container_name: whtest_nginx
     restart: unless-stopped
     ports:
       - "80:80"
@@ -45,7 +45,7 @@ services:
   # Certbot for SSL Certificates
   certbot:
     image: certbot/certbot:latest
-    container_name: certbot
+    container_name: whtest_certbot
     volumes:
       - certbot_certs:/etc/letsencrypt
       - acme_challenge:/var/www/acme-challenge

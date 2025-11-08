@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # Webhook Tester Service
+  webhook-tester:
+    image: tarampampam/webhook-tester:latest
+    container_name: webhook_tester
+    restart: unless-stopped
+    environment:
+      - LISTEN_PORT=8080
+      - LISTEN_ADDR=0.0.0.0
+      - STORAGE_DRIVER=memory
+      - CREATE_SESSION=false
+    networks:
+      - web
+    healthcheck:
+      test: ['CMD-SHELL', 'wget --spider -q http://localhost:8080/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - acme_challenge:/var/www/acme-challenge:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    networks:
+      - web
+    depends_on:
+      - webhook-tester
+    healthcheck:
+      test: ['CMD', 'nginx', '-t']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Certbot for SSL Certificates
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - acme_challenge:/var/www/acme-challenge
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/acme-challenge --quiet; sleep 12h & wait $${!}; done;'"
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  acme_challenge:
+    driver: local
+  certbot_certs:
+    driver: local

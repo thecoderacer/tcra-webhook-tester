@@ -1,0 +1,256 @@
+name: CD - Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  ENVIRONMENT: production
+  DEPLOY_PATH: ~/tcra-webhook-tester
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://whtest.365cloud.my.id
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Production VPS
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          DEPLOY_START=$(date +%s)
+
+          ssh -p ${SSH_PORT:-22} ${SSH_USER}@${SSH_HOST} << 'ENDSSH'
+            set -e
+
+            echo "🚀 Starting Webhook Tester Production Deployment"
+            echo "=================================="
+            echo ""
+
+            # Navigate to project directory
+            cd ~/tcra-webhook-tester || {
+              echo "❌ Project directory not found at ~/tcra-webhook-tester"
+              exit 1
+            }
+
+            # Backup current state
+            echo "💾 Creating backup..."
+            BACKUP_DIR="backups/backup-$(date +%Y%m%d-%H%M%S)"
+            mkdir -p $BACKUP_DIR
+
+            # Backup environment file
+            if [ -f .env ]; then
+              cp .env $BACKUP_DIR/.env.backup
+              echo "✅ Environment file backed up"
+            fi
+
+            # Save current container state
+            docker-compose ps > $BACKUP_DIR/containers-state.txt
+            echo "✅ Container state saved"
+
+            # Pull latest changes
+            echo ""
+            echo "📦 Pulling latest changes from GitHub..."
+            git fetch origin
+            git reset --hard origin/main || git reset --hard origin/master
+            echo "✅ Code updated"
+
+            # Check if .env exists
+            if [ ! -f .env ]; then
+              echo "⚠️  .env file not found!"
+              if [ -f $BACKUP_DIR/.env.backup ]; then
+                cp $BACKUP_DIR/.env.backup .env
+                echo "✅ Restored .env from backup"
+              else
+                echo "❌ No .env file available. Deployment cannot continue."
+                exit 1
+              fi
+            fi
+
+            # Pull latest Docker images
+            echo ""
+            echo "🐋 Pulling latest Docker images..."
+            docker-compose pull
+            echo "✅ Images updated"
+
+            # Stop old containers
+            echo ""
+            echo "🛑 Stopping old containers..."
+            docker-compose down
+            echo "✅ Old containers stopped"
+
+            # Start new containers
+            echo ""
+            echo "▶️  Starting new containers..."
+            docker-compose up -d
+            echo "✅ New containers started"
+
+            # Wait for services to be ready
+            echo ""
+            echo "⏳ Waiting for services to start (30 seconds)..."
+            sleep 30
+
+            # Show container status
+            echo ""
+            echo "📊 Container Status:"
+            docker-compose ps
+
+            echo ""
+            echo "=================================="
+            echo "✅ Deployment completed!"
+            echo "=================================="
+          ENDSSH
+
+          DEPLOY_END=$(date +%s)
+          DEPLOY_DURATION=$((DEPLOY_END - DEPLOY_START))
+
+          echo ""
+          echo "⏱️  Deployment duration: ${DEPLOY_DURATION} seconds"
+          echo "DEPLOY_DURATION=${DEPLOY_DURATION}" >> $GITHUB_ENV
+
+      - name: Health Check
+        id: health_check
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          echo "🔍 Running health checks..."
+
+          HEALTH_STATUS="success"
+
+          ssh -p ${SSH_PORT:-22} ${SSH_USER}@${SSH_HOST} << 'ENDSSH' || HEALTH_STATUS="failed"
+            set -e
+            cd ~/tcra-webhook-tester
+
+            # Check if containers are running
+            if ! docker-compose ps | grep -q "Up"; then
+              echo "❌ Containers are not running"
+              exit 1
+            fi
+
+            # Wait for health endpoints
+            sleep 10
+
+            # Check webhook-tester health
+            echo "Checking webhook-tester health..."
+            if docker-compose exec -T webhook-tester wget -q --spider http://localhost:8080/health; then
+              echo "✅ Webhook tester is healthy"
+            else
+              echo "⚠️  Webhook tester health check failed"
+            fi
+
+            # Check nginx
+            echo "Checking nginx..."
+            if docker-compose exec -T nginx nginx -t 2>/dev/null; then
+              echo "✅ Nginx configuration is valid"
+            else
+              echo "⚠️  Nginx configuration has issues"
+            fi
+
+            echo ""
+            echo "✅ Health checks completed"
+          ENDSSH
+
+          echo "HEALTH_STATUS=${HEALTH_STATUS}" >> $GITHUB_ENV
+
+          if [ "$HEALTH_STATUS" = "failed" ]; then
+            echo "❌ Health checks failed!"
+            exit 1
+          else
+            echo "✅ All health checks passed"
+          fi
+
+      - name: SSL Certificate Check
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          echo "🔒 Checking SSL certificates..."
+
+          ssh -p ${SSH_PORT:-22} ${SSH_USER}@${SSH_HOST} << 'ENDSSH' || true
+            cd ~/tcra-webhook-tester
+
+            # Check certificate via certbot
+            if docker-compose exec -T certbot certbot certificates | grep -q "whtest.365cloud.my.id"; then
+              echo "✅ whtest.365cloud.my.id certificate exists"
+            else
+              echo "⚠️  whtest.365cloud.my.id certificate not found"
+              echo "Run: bash scripts/ssl-setup.sh on the server"
+            fi
+          ENDSSH
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "=================================="
+          echo "✅ Webhook Tester Production Deployment Successful!"
+          echo "=================================="
+          echo ""
+          echo "🌐 Application URL:"
+          echo "   - Webhook Tester: https://whtest.365cloud.my.id"
+          echo ""
+          echo "📊 Metrics:"
+          echo "   - Duration: ${DEPLOY_DURATION} seconds"
+          echo "   - Commit: ${{ github.sha }}"
+          echo "   - Author: ${{ github.actor }}"
+          echo "=================================="
+
+      - name: Rollback on Failure
+        if: failure()
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          echo "❌ Deployment failed! Starting auto-rollback..."
+
+          ssh -p ${SSH_PORT:-22} ${SSH_USER}@${SSH_HOST} << 'ENDSSH' || true
+            cd ~/tcra-webhook-tester
+
+            # Find most recent backup
+            LATEST_BACKUP=$(ls -td backups/backup-* 2>/dev/null | head -1)
+
+            if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP/.env.backup" ]; then
+              echo "📦 Restoring from backup: $LATEST_BACKUP"
+
+              # Restore .env
+              cp $LATEST_BACKUP/.env.backup .env
+
+              # Restart with previous configuration
+              docker-compose down
+              docker-compose up -d
+
+              echo "✅ Rollback completed"
+            else
+              echo "⚠️  No backup found for automatic rollback"
+              echo "Manual intervention required"
+            fi
+          ENDSSH
+
+          echo ""
+          echo "❌ Deployment failed and rollback attempted"
+          echo "Please check the logs and investigate the issue"
+          exit 1

@@ -1,0 +1,45 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Docker volumes
+postgres_data/
+n8n_data/
+certbot_certs/
+acme_challenge/
+
+# Backups
+backups/
+
+# Logs
+*.log
+logs/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SSL Certificates (handled by certbot)
+nginx/ssl/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -61,7 +61,7 @@ jobs:
             if [ ! -d .git ]; then
               echo "📦 First-time deployment - initializing repository..."
               git init
-              git remote add origin https://github.com/${REPOSITORY_NAME}.git
+              git remote add origin https://github.com/thecoderacer/tcra-webhook-tester.git
             fi
 
             # Backup current state (skip if first deployment)
